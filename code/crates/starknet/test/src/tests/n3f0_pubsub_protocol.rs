@@ -19,11 +19,12 @@ async fn run_test(params: TestParams) {
         .await
 }
 
+// Tests converted from broadcast to gossipsub
 #[tokio::test]
-pub async fn broadcast_custom_config_1ktx() {
+pub async fn gossip_default_config_1ktx() {
     let params = TestParams {
         enable_value_sync: false,
-        protocol: PubSubProtocol::Broadcast,
+        protocol: PubSubProtocol::GossipSub(GossipSubConfig::default()),
         block_size: ByteSize::kib(1),
         tx_size: ByteSize::kib(1),
         txs_per_part: 1,
@@ -34,10 +35,10 @@ pub async fn broadcast_custom_config_1ktx() {
 }
 
 #[tokio::test]
-pub async fn broadcast_custom_config_2ktx() {
+pub async fn gossip_default_config_2ktx() {
     let params = TestParams {
         enable_value_sync: false,
-        protocol: PubSubProtocol::Broadcast,
+        protocol: PubSubProtocol::GossipSub(GossipSubConfig::default()),
         block_size: ByteSize::kib(2),
         tx_size: ByteSize::kib(2),
         txs_per_part: 1,

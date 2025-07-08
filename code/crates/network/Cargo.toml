@@ -25,7 +25,6 @@ either = { workspace = true }
 eyre = { workspace = true }
 futures = { workspace = true }
 libp2p = { workspace = true }
-libp2p-broadcast = { workspace = true }
 seahash = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }

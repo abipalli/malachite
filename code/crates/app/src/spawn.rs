@@ -205,7 +205,7 @@ fn make_gossip_config(cfg: &ConsensusConfig) -> NetworkConfig {
             }),
         pubsub_protocol: match cfg.p2p.protocol {
             PubSubProtocol::GossipSub(_) => malachitebft_network::PubSubProtocol::GossipSub,
-            PubSubProtocol::Broadcast => malachitebft_network::PubSubProtocol::Broadcast,
+            // Only GossipSub is supported
         },
         gossipsub: match cfg.p2p.protocol {
             PubSubProtocol::GossipSub(config) => GossipSubConfig {
@@ -214,7 +214,7 @@ fn make_gossip_config(cfg: &ConsensusConfig) -> NetworkConfig {
                 mesh_n_low: config.mesh_n_low(),
                 mesh_outbound_min: config.mesh_outbound_min(),
             },
-            PubSubProtocol::Broadcast => GossipSubConfig::default(),
+            // Only GossipSub is supported
         },
         rpc_max_size: cfg.p2p.rpc_max_size.as_u64() as usize,
         pubsub_max_size: cfg.p2p.pubsub_max_size.as_u64() as usize,

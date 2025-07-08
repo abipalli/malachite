@@ -293,7 +293,7 @@ where
 
                 let data = self.codec.encode(&status);
                 match data {
-                    Ok(data) => ctrl_handle.broadcast(Channel::Sync, data).await?,
+                    Ok(data) => ctrl_handle.publish(Channel::Sync, data).await?,
                     Err(e) => error!("Failed to encode status message: {e:?}"),
                 }
             }

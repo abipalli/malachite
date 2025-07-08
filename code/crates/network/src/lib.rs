@@ -4,11 +4,10 @@ use std::ops::ControlFlow;
 use std::time::Duration;
 
 use futures::StreamExt;
-use libp2p::metrics::{Metrics, Recorder};
+use libp2p::metrics::{Metrics, Recorder, Registry as Libp2pRegistry};
 use libp2p::request_response::{InboundRequestId, OutboundRequestId};
 use libp2p::swarm::{self, SwarmEvent};
 use libp2p::{gossipsub, identify, quic, SwarmBuilder};
-use libp2p_broadcast as broadcast;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, error_span, info, trace, warn, Instrument};
 
@@ -37,14 +36,13 @@ const PROTOCOL: &str = "/malachitebft-core-consensus/v1beta1";
 const METRICS_PREFIX: &str = "malachitebft_network";
 const DISCOVERY_METRICS_PREFIX: &str = "malachitebft_discovery";
 
-#[derive(Copy, Clone, Debug, Default)]
+/// Protocol for publish-subscribe messaging between peers
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PubSubProtocol {
     /// GossipSub: a pubsub protocol based on epidemic broadcast trees
-    #[default]
+	#[default]
     GossipSub,
-
-    /// Broadcast: a simple broadcast protocol
-    Broadcast,
+    // Broadcast protocol removed - GossipSub handles all pubsub needs
 }
 
 impl PubSubProtocol {
@@ -52,9 +50,7 @@ impl PubSubProtocol {
         matches!(self, Self::GossipSub)
     }
 
-    pub fn is_broadcast(&self) -> bool {
-        matches!(self, Self::Broadcast)
-    }
+    // Remove is_broadcast method as it's no longer needed
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -153,7 +149,6 @@ pub enum Event {
 #[derive(Debug)]
 pub enum CtrlMsg {
     Publish(Channel, Bytes),
-    Broadcast(Channel, Bytes),
     SyncRequest(PeerId, Bytes, oneshot::Sender<OutboundRequestId>),
     SyncReply(InboundRequestId, Bytes),
     Shutdown,
@@ -180,6 +175,9 @@ pub async fn spawn(
     registry: SharedRegistry,
 ) -> Result<Handle, eyre::Report> {
     let swarm = registry.with_prefix(METRICS_PREFIX, |registry| -> Result<_, eyre::Report> {
+        // Create a libp2p registry for the swarm builder
+        let mut libp2p_registry = Libp2pRegistry::default();
+
         let builder = SwarmBuilder::with_existing_identity(keypair).with_tokio();
         match config.transport {
             TransportProtocol::Tcp => Ok(builder
@@ -189,21 +187,25 @@ pub async fn spawn(
                     libp2p::yamux::Config::default,
                 )?
                 .with_dns()?
-                .with_bandwidth_metrics(registry)
+                .with_bandwidth_metrics(&mut libp2p_registry)
                 .with_behaviour(|kp| Behaviour::new_with_metrics(&config, kp, registry))?
                 .with_swarm_config(|cfg| config.apply_to_swarm(cfg))
                 .build()),
             TransportProtocol::Quic => Ok(builder
                 .with_quic_config(|cfg| config.apply_to_quic(cfg))
                 .with_dns()?
-                .with_bandwidth_metrics(registry)
+                .with_bandwidth_metrics(&mut libp2p_registry)
                 .with_behaviour(|kp| Behaviour::new_with_metrics(&config, kp, registry))?
                 .with_swarm_config(|cfg| config.apply_to_swarm(cfg))
                 .build()),
         }
     })?;
 
-    let metrics = registry.with_prefix(METRICS_PREFIX, Metrics::new);
+    let metrics = registry.with_prefix(METRICS_PREFIX, |_registry| {
+        // Create a libp2p registry for metrics
+        let mut libp2p_registry = Libp2pRegistry::default();
+        Metrics::new(&mut libp2p_registry)
+    });
 
     let (tx_event, rx_event) = mpsc::channel(32);
     let (tx_ctrl, rx_ctrl) = mpsc::channel(32);
@@ -246,7 +248,7 @@ async fn run(
     };
 
     if config.enable_sync {
-        if let Err(e) = pubsub::subscribe(&mut swarm, PubSubProtocol::Broadcast, &[Channel::Sync]) {
+        if let Err(e) = pubsub::subscribe(&mut swarm, PubSubProtocol::GossipSub, &[Channel::Sync]) {
             error!("Error subscribing to Sync channel: {e}");
             return;
         };
@@ -304,23 +306,6 @@ async fn handle_ctrl_msg(
             match result {
                 Ok(()) => debug!(%channel, size = %msg_size, "Published message"),
                 Err(e) => error!(%channel, "Error publishing message: {e}"),
-            }
-
-            ControlFlow::Continue(())
-        }
-
-        CtrlMsg::Broadcast(channel, data) => {
-            if channel == Channel::Sync && !config.enable_sync {
-                trace!("Ignoring broadcast message to Sync channel: Sync not enabled");
-                return ControlFlow::Continue(());
-            }
-
-            let msg_size = data.len();
-            let result = pubsub::publish(swarm, PubSubProtocol::Broadcast, channel, data);
-
-            match result {
-                Ok(()) => debug!(%channel, size = %msg_size, "Broadcasted message"),
-                Err(e) => error!(%channel, "Error broadcasting message: {e}"),
             }
 
             ControlFlow::Continue(())
@@ -505,10 +490,6 @@ async fn handle_swarm_event(
             return handle_gossipsub_event(event, metrics, swarm, state, tx_event).await;
         }
 
-        SwarmEvent::Behaviour(NetworkEvent::Broadcast(event)) => {
-            return handle_broadcast_event(event, metrics, swarm, state, tx_event).await;
-        }
-
         SwarmEvent::Behaviour(NetworkEvent::Sync(event)) => {
             return handle_sync_event(event, metrics, swarm, state, tx_event).await;
         }
@@ -600,61 +581,6 @@ async fn handle_gossipsub_event(
 
         gossipsub::Event::GossipsubNotSupported { peer_id } => {
             trace!("Peer does not support GossipSub: {peer_id}");
-        }
-    }
-
-    ControlFlow::Continue(())
-}
-
-async fn handle_broadcast_event(
-    event: broadcast::Event,
-    _metrics: &Metrics,
-    _swarm: &mut swarm::Swarm<Behaviour>,
-    _state: &mut State,
-    tx_event: &mpsc::Sender<Event>,
-) -> ControlFlow<()> {
-    match event {
-        broadcast::Event::Subscribed(peer_id, topic) => {
-            if !Channel::has_broadcast_topic(&topic) {
-                trace!("Peer {peer_id} tried to subscribe to unknown topic: {topic:?}");
-                return ControlFlow::Continue(());
-            }
-
-            trace!("Peer {peer_id} subscribed to {topic:?}");
-        }
-
-        broadcast::Event::Unsubscribed(peer_id, topic) => {
-            if !Channel::has_broadcast_topic(&topic) {
-                trace!("Peer {peer_id} tried to unsubscribe from unknown topic: {topic:?}");
-                return ControlFlow::Continue(());
-            }
-
-            trace!("Peer {peer_id} unsubscribed from {topic:?}");
-        }
-
-        broadcast::Event::Received(peer_id, topic, message) => {
-            let Some(channel) = Channel::from_broadcast_topic(&topic) else {
-                trace!("Received message from {peer_id} on different channel: {topic:?}");
-                return ControlFlow::Continue(());
-            };
-
-            trace!(
-                "Received message from {peer_id} on channel {channel} of {} bytes",
-                message.len()
-            );
-
-            let peer_id = PeerId::from_libp2p(&peer_id);
-
-            let event = if channel == Channel::Liveness {
-                Event::LivenessMessage(channel, peer_id, message)
-            } else {
-                Event::ConsensusMessage(channel, peer_id, message)
-            };
-
-            if let Err(e) = tx_event.send(event).await {
-                error!("Error sending message to handle: {e}");
-                return ControlFlow::Break(());
-            }
         }
     }
 

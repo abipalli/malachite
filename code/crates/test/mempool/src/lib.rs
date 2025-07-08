@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use eyre::eyre;
 use futures::StreamExt;
-use libp2p::metrics::{Metrics, Recorder};
+use libp2p::metrics::{Metrics, Recorder, Registry as Libp2pRegistry};
 use libp2p::swarm::{self, SwarmEvent};
 use libp2p::{gossipsub, identify, SwarmBuilder};
 use prost::bytes::Bytes;
@@ -140,6 +140,9 @@ pub async fn spawn(
     registry: SharedRegistry,
 ) -> Result<Handle, BoxError> {
     let mut swarm = registry.with_prefix(METRICS_PREFIX, |registry| -> Result<_, BoxError> {
+        // Create a libp2p registry for the swarm builder
+        let mut libp2p_registry = Libp2pRegistry::default();
+
         let builder = SwarmBuilder::with_existing_identity(keypair).with_tokio();
         match TransportProtocol::from_multiaddr(&config.listen_addr) {
             Some(TransportProtocol::Tcp) => Ok(builder
@@ -149,14 +152,14 @@ pub async fn spawn(
                     libp2p::yamux::Config::default,
                 )?
                 .with_dns()?
-                .with_bandwidth_metrics(registry)
+                .with_bandwidth_metrics(&mut libp2p_registry)
                 .with_behaviour(|kp| Behaviour::new_with_metrics(kp, registry))?
                 .with_swarm_config(|cfg| config.apply(cfg))
                 .build()),
             Some(TransportProtocol::Quic) => Ok(builder
                 .with_quic()
                 .with_dns()?
-                .with_bandwidth_metrics(registry)
+                .with_bandwidth_metrics(&mut libp2p_registry)
                 .with_behaviour(|kp| Behaviour::new_with_metrics(kp, registry))?
                 .with_swarm_config(|cfg| config.apply(cfg))
                 .build()),
@@ -176,7 +179,11 @@ pub async fn spawn(
             .subscribe(&channel.to_topic())?;
     }
 
-    let metrics = registry.with_prefix(METRICS_PREFIX, Metrics::new);
+    let metrics = registry.with_prefix(METRICS_PREFIX, |_registry| {
+        // Create a libp2p registry for metrics
+        let mut libp2p_registry = libp2p::metrics::Registry::default();
+        Metrics::new(&mut libp2p_registry)
+    });
 
     let (tx_event, rx_event) = mpsc::channel(32);
     let (tx_ctrl, rx_ctrl) = mpsc::channel(32);

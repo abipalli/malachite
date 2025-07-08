@@ -190,7 +190,7 @@ impl FromStr for TransportProtocol {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum PubSubProtocol {
     GossipSub(GossipSubConfig),
-    Broadcast,
+    // Broadcast removed - GossipSub is the only supported pubsub protocol
 }
 
 impl Default for PubSubProtocol {

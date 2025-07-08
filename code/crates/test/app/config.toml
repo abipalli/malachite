@@ -121,8 +121,7 @@ rpc_max_size = "10 MiB"
 #######################################################
 # GossipSub v1.1 is the default and recommended protocol for Consensus P2P.
 [consensus.p2p.protocol]
-# Valid options are "gossipsub" and "broadcast".
-# Broadcast is an experimental protocol with no additional configuration options.
+# Valid option is "gossipsub" (the only supported protocol).
 type = "gossipsub"
 
 # GossipSub only. Target number of peers for the mesh network (D in the GossipSub spec)
@@ -220,8 +219,7 @@ rpc_max_size = "10 MiB"
 # /!\ This setting has no effect on the mempool yet /!\
 # GossipSub v1.1 is the default and recommended protocol for Mempool P2P.
 [mempool.p2p.protocol]
-# Valid options are "gossipsub" and "broadcast".
-# Broadcast is an experimental protocol with no additional configuration options.
+# Valid option is "gossipsub" (the only supported protocol).
 type = "gossipsub"
 
 

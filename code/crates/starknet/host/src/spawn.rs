@@ -257,7 +257,7 @@ async fn spawn_network_actor(
             }),
         pubsub_protocol: match cfg.consensus.p2p.protocol {
             config::PubSubProtocol::GossipSub(_) => gossip::PubSubProtocol::GossipSub,
-            config::PubSubProtocol::Broadcast => gossip::PubSubProtocol::Broadcast,
+            // Only GossipSub is supported
         },
         gossipsub: match cfg.consensus.p2p.protocol {
             config::PubSubProtocol::GossipSub(config) => gossip::GossipSubConfig {
@@ -266,7 +266,7 @@ async fn spawn_network_actor(
                 mesh_n_low: config.mesh_n_low(),
                 mesh_outbound_min: config.mesh_outbound_min(),
             },
-            config::PubSubProtocol::Broadcast => gossip::GossipSubConfig::default(),
+            // Only GossipSub is supported
         },
         rpc_max_size: cfg.consensus.p2p.rpc_max_size.as_u64() as usize,
         pubsub_max_size: cfg.consensus.p2p.pubsub_max_size.as_u64() as usize,

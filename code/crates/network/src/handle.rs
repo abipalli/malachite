@@ -38,11 +38,6 @@ impl CtrlHandle {
         Ok(())
     }
 
-    pub async fn broadcast(&self, channel: Channel, data: Bytes) -> Result<(), eyre::Report> {
-        self.tx_ctrl.send(CtrlMsg::Broadcast(channel, data)).await?;
-        Ok(())
-    }
-
     pub async fn sync_request(
         &self,
         peer_id: PeerId,
@@ -121,6 +116,8 @@ impl Handle {
         self.recv.recv().await
     }
 
+    /// Broadcast a message to all peers on the given channel
+    /// This internally uses the publish method with GossipSub protocol
     pub async fn broadcast(&self, channel: Channel, data: Bytes) -> Result<(), eyre::Report> {
         self.ctrl.publish(channel, data).await
     }

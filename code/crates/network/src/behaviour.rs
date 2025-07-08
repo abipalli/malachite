@@ -5,11 +5,11 @@ use libp2p::request_response::{OutboundRequestId, ResponseChannel};
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::NetworkBehaviour;
 use libp2p::{gossipsub, identify, ping};
-use libp2p_broadcast as broadcast;
 
 pub use libp2p::identity::Keypair;
 pub use libp2p::{Multiaddr, PeerId};
 
+use libp2p::metrics::Registry as Libp2pRegistry;
 use malachitebft_discovery as discovery;
 use malachitebft_metrics::Registry;
 use malachitebft_sync as sync;
@@ -21,7 +21,6 @@ pub enum NetworkEvent {
     Identify(identify::Event),
     Ping(ping::Event),
     GossipSub(gossipsub::Event),
-    Broadcast(broadcast::Event),
     Sync(sync::Event),
     Discovery(discovery::NetworkEvent),
 }
@@ -44,12 +43,6 @@ impl From<gossipsub::Event> for NetworkEvent {
     }
 }
 
-impl From<broadcast::Event> for NetworkEvent {
-    fn from(event: broadcast::Event) -> Self {
-        Self::Broadcast(event)
-    }
-}
-
 impl From<sync::Event> for NetworkEvent {
     fn from(event: sync::Event) -> Self {
         Self::Sync(event)
@@ -68,7 +61,6 @@ pub struct Behaviour {
     pub identify: identify::Behaviour,
     pub ping: ping::Behaviour,
     pub gossipsub: Toggle<gossipsub::Behaviour>,
-    pub broadcast: Toggle<broadcast::Behaviour>,
     pub sync: Toggle<sync::Behaviour>,
     pub discovery: Toggle<discovery::Behaviour>,
 }
@@ -149,7 +141,7 @@ fn gossipsub_config(config: GossipSubConfig, max_transmit_size: usize) -> gossip
 }
 
 impl Behaviour {
-    pub fn new_with_metrics(config: &Config, keypair: &Keypair, registry: &mut Registry) -> Self {
+    pub fn new_with_metrics(config: &Config, keypair: &Keypair, _registry: &mut Registry) -> Self {
         let identify = identify::Behaviour::new(identify::Config::new(
             PROTOCOL.to_string(),
             keypair.public(),
@@ -158,29 +150,19 @@ impl Behaviour {
         let ping = ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(5)));
 
         let gossipsub = config.pubsub_protocol.is_gossipsub().then(|| {
-            gossipsub::Behaviour::new_with_metrics(
+            gossipsub::Behaviour::new(
                 gossipsub::MessageAuthenticity::Signed(keypair.clone()),
                 gossipsub_config(config.gossipsub, config.pubsub_max_size),
-                registry.sub_registry_with_prefix("gossipsub"),
-                Default::default(),
             )
             .unwrap()
         });
 
-        let enable_broadcast = config.pubsub_protocol.is_broadcast() || config.enable_sync;
-        let broadcast = enable_broadcast.then(|| {
-            broadcast::Behaviour::new_with_metrics(
-                broadcast::Config {
-                    max_buf_size: config.pubsub_max_size,
-                },
-                registry.sub_registry_with_prefix("broadcast"),
-            )
-        });
-
         let sync = config.enable_sync.then(|| {
+            // Create a libp2p registry from the malachitebft registry
+            let mut libp2p_registry = Libp2pRegistry::default();
             sync::Behaviour::new_with_metrics(
                 sync::Config::default().with_max_response_size(config.rpc_max_size),
-                registry.sub_registry_with_prefix("sync"),
+                &mut libp2p_registry,
             )
         });
 
@@ -194,7 +176,6 @@ impl Behaviour {
             ping,
             sync: Toggle::from(sync),
             gossipsub: Toggle::from(gossipsub),
-            broadcast: Toggle::from(broadcast),
             discovery: Toggle::from(discovery),
         }
     }

@@ -62,18 +62,16 @@ impl Behaviour {
         }
     }
 
-    pub fn new_with_metrics(keypair: &Keypair, registry: &mut Registry) -> Self {
+    pub fn new_with_metrics(keypair: &Keypair, _registry: &mut Registry) -> Self {
         Self {
             identify: identify::Behaviour::new(identify::Config::new(
                 PROTOCOL.to_string(),
                 keypair.public(),
             )),
             ping: ping::Behaviour::new(ping::Config::new().with_interval(Duration::from_secs(5))),
-            gossipsub: gossipsub::Behaviour::new_with_metrics(
+            gossipsub: gossipsub::Behaviour::new(
                 gossipsub::MessageAuthenticity::Signed(keypair.clone()),
                 gossipsub_config(),
-                registry,
-                Default::default(),
             )
             .unwrap(),
         }

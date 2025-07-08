@@ -19,15 +19,6 @@ pub fn subscribe(
                 return Err(eyre::eyre!("GossipSub not enabled"));
             }
         }
-        PubSubProtocol::Broadcast => {
-            if let Some(broadcast) = swarm.behaviour_mut().broadcast.as_mut() {
-                for channel in channels {
-                    broadcast.subscribe(channel.to_broadcast_topic());
-                }
-            } else {
-                return Err(eyre::eyre!("Broadcast not enabled"));
-            }
-        }
     }
 
     Ok(())
@@ -45,13 +36,6 @@ pub fn publish(
                 gossipsub.publish(channel.to_gossipsub_topic(), data)?;
             } else {
                 return Err(eyre::eyre!("GossipSub not enabled"));
-            }
-        }
-        PubSubProtocol::Broadcast => {
-            if let Some(broadcast) = swarm.behaviour_mut().broadcast.as_mut() {
-                broadcast.broadcast(&channel.to_broadcast_topic(), data);
-            } else {
-                return Err(eyre::eyre!("Broadcast not enabled"));
             }
         }
     }
